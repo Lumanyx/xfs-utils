@@ -1,4 +1,4 @@
-package net.fullmoon.util
+package fm.luma.xfs.util
 
 import java.io.File
 import java.io.FileInputStream

@@ -1,7 +1,10 @@
-package net.fullmoon.util
+package fm.luma.xfs.util
 
 import java.io.*
 import java.util.zip.Inflater
+
+private const val FILE_UNCOMPRESSED = 0
+private const val FILE_COMPRESSED = 1
 
 /**
  * Class that parses XFS (Xenesis File System) archives. Only "1.0.0.0" versions of XFS files are supported.
@@ -48,7 +51,6 @@ class XfsParser(
     }
 
     private fun extract(path: String, reader: ByteArrayInputStream) {
-
         val entries = reader.readUnsignedInt().toInt()
 
         val nameLength = reader.read()
@@ -57,26 +59,45 @@ class XfsParser(
         val offset = reader.readVariableSizeLong(6)
         val size = reader.readUnsignedInt()
         val zsize = reader.readUnsignedInt()
-        val isFile = reader.read() == 1
+        val fileType = reader.read()
 
-        if (isFile) {
-            val outputPath = "$path/$name"
-            val data = extractFile(outputPath, size, zsize, offset)
+        val outputPath = "$path/$name"
+        println("Reading $outputPath...")
+        val outputFile = File(outputFolder.absolutePath + File.separator + outputPath.replace("/", File.separator))
 
-            println("Reading $outputPath...")
-            val file = File(outputFolder.absolutePath + File.separator + outputPath.replace("/", File.separator))
-            file.parentFile.mkdirs()
-            file.createNewFile()
-            println(" -> Writing ${((data.size / 1024.0) / 1024.0)} MiB(s)")
-            file.writeBytes(data)
+        val isFolder = entries > 0 || (fileType == FILE_UNCOMPRESSED && size == 0L)
+        if(isFolder) {
+            outputFile.mkdirs()
+            repeat(entries) {
+                extract("$path/$name", reader)
+            }
+        } else {
+            if(fileType == FILE_UNCOMPRESSED) {
+                val data = extractUncompressedFile(size, offset)
+
+                outputFile.parentFile.mkdirs()
+                outputFile.createNewFile()
+                println(" -> Writing ${((data.size / 1024.0) / 1024.0)} MiB(s)")
+                outputFile.writeBytes(data)
+            } else if (fileType == FILE_COMPRESSED) {
+                val data = extractCompressedFile(zsize, offset)
+
+                outputFile.parentFile.mkdirs()
+                outputFile.createNewFile()
+                println(" -> Writing ${((data.size / 1024.0) / 1024.0)} MiB(s)")
+                outputFile.writeBytes(data)
+            } else {
+                println("Ignoring unknown file type $fileType for $path/$name")
+            }
         }
-        repeat(entries) {
-            extract("$path/$name", reader)
-        }
-
     }
 
-    private fun extractFile(file: String, size: Long, zsize: Long, offset: Long): ByteArray {
+    private fun extractUncompressedFile(length: Long, offset: Long): ByteArray {
+        goto(offset)
+        return stream.readNBytes(length.toInt())
+    }
+
+    private fun extractCompressedFile(zsize: Long, offset: Long): ByteArray {
         val endOffset = offset + zsize
         val output = ByteArrayOutputStream()
 
